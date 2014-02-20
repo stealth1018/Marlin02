@@ -2828,7 +2828,7 @@ void process_commands()
         LCD_ALERTMESSAGEPGM("Err:cold extrusion");
 	break;
       }
-
+        float target[4];
         float lastpos[4];
         target[X_AXIS]=current_position[X_AXIS];
         target[Y_AXIS]=current_position[Y_AXIS];
