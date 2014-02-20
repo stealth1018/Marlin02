@@ -88,6 +88,8 @@ static bool check_endstops = true;
 volatile long count_position[NUM_AXIS] = { 0, 0, 0, 0};
 volatile signed char count_direction[NUM_AXIS] = { 1, 1, 1, 1};
 
+unsigned long digipot_motor_current[4];
+
 //===========================================================================
 //=============================functions         ============================
 //===========================================================================
@@ -454,22 +456,8 @@ ISR(TIMER1_COMPA_vect)
     #ifndef COREXY
     if ((out_bits & (1<<Y_AXIS)) != 0) {   // -direction
     #else
-    if ((((out_bits & (1<<X_AXIS)) != 0)&&(out_bits & (1<<Y_AXIS)) == 0)) {   // -Y occurs for -A and +B
+    if ((((out_bits & (1<<X_AXIS)) == 0)&&(out_bits & (1<<Y_AXIS)) != 0)) {   // +Y occurs for +A and -B
     #endif
-      CHECK_ENDSTOPS
-      {
-        #if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
-          bool y_min_endstop=(READ(Y_MIN_PIN) != Y_MIN_ENDSTOP_INVERTING);
-          if(y_min_endstop && old_y_min_endstop && (current_block->steps_y > 0)) {
-            endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS];
-            endstop_y_hit=true;
-            step_events_completed = current_block->step_event_count;
-          }
-          old_y_min_endstop = y_min_endstop;
-        #endif
-      }
-    }
-    else { // +direction
       CHECK_ENDSTOPS
       {
         #if defined(Y_MAX_PIN) && Y_MAX_PIN > -1
@@ -480,6 +468,20 @@ ISR(TIMER1_COMPA_vect)
             step_events_completed = current_block->step_event_count;
           }
           old_y_max_endstop = y_max_endstop;
+        #endif
+      }
+    }
+    else { // +direction
+      CHECK_ENDSTOPS
+      {
+        #if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
+          bool y_min_endstop=(READ(Y_MIN_PIN) != Y_MIN_ENDSTOP_INVERTING);
+          if(y_min_endstop && old_y_min_endstop && (current_block->steps_y > 0)) {
+            endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS];
+            endstop_y_hit=true;
+            step_events_completed = current_block->step_event_count;
+          }
+          old_y_min_endstop = y_min_endstop;
         #endif
       }
     }
@@ -1193,8 +1195,7 @@ void digitalPotWrite(int address, int value) // From Arduino DigitalPotControl e
 void digipot_init() //Initialize Digipot Motor Current
 {
   #if defined(DIGIPOTSS_PIN) && DIGIPOTSS_PIN > -1
-    const uint8_t digipot_motor_current[] = DIGIPOT_MOTOR_CURRENT;
-
+  
     SPI.begin();
     pinMode(DIGIPOTSS_PIN, OUTPUT);
     for(int i=0;i<=4;i++)

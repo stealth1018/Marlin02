@@ -70,7 +70,6 @@ void Config_StoreSettings()
   EEPROM_WRITE_VAR(i,absPreheatHotendTemp);
   EEPROM_WRITE_VAR(i,absPreheatHPBTemp);
   EEPROM_WRITE_VAR(i,absPreheatFanSpeed);
-  EEPROM_WRITE_VAR(i,zprobe_zoffset);
   #ifdef PIDTEMP
     EEPROM_WRITE_VAR(i,Kp);
     EEPROM_WRITE_VAR(i,Ki);
@@ -86,6 +85,10 @@ void Config_StoreSettings()
     int lcd_contrast = 32;
   #endif
   EEPROM_WRITE_VAR(i,lcd_contrast);
+  
+  EEPROM_WRITE_VAR(i,digipot_motor_current);
+  EEPROM_WRITE_VAR(i,zprobe_offset);
+  
   char ver2[4]=EEPROM_VERSION;
   i=EEPROM_OFFSET;
   EEPROM_WRITE_VAR(i,ver2); // validate data
@@ -167,6 +170,21 @@ void Config_PrintSettings()
     SERIAL_ECHOPAIR(" D" ,unscalePID_d(Kd));
     SERIAL_ECHOLN(""); 
 #endif
+
+    SERIAL_ECHO_START;
+    SERIAL_ECHOLNPGM("DIGIPOT:");
+    SERIAL_ECHO_START;
+    SERIAL_ECHOPAIR("  M907 X",digipot_motor_current[0]);
+    SERIAL_ECHOPAIR(" Y",digipot_motor_current[1]);
+    SERIAL_ECHOPAIR(" Z",digipot_motor_current[2]);
+    SERIAL_ECHOPAIR(" E",digipot_motor_current[3]);
+    SERIAL_ECHOLN("");
+
+    SERIAL_ECHO_START;
+    SERIAL_ECHOLNPGM("Z PROBE OFFSET:");
+    SERIAL_ECHO_START;
+    SERIAL_ECHOPAIR("  M3 S",zprobe_offset);
+    SERIAL_ECHOLN("");
 } 
 #endif
 
@@ -211,7 +229,6 @@ void Config_RetrieveSettings()
         EEPROM_READ_VAR(i,absPreheatHotendTemp);
         EEPROM_READ_VAR(i,absPreheatHPBTemp);
         EEPROM_READ_VAR(i,absPreheatFanSpeed);
-        EEPROM_READ_VAR(i,zprobe_zoffset);
         #ifndef PIDTEMP
         float Kp,Ki,Kd;
         #endif
@@ -223,9 +240,13 @@ void Config_RetrieveSettings()
         int lcd_contrast;
         #endif
         EEPROM_READ_VAR(i,lcd_contrast);
+        
+        EEPROM_READ_VAR(i,digipot_motor_current);
+        EEPROM_READ_VAR(i,zprobe_offset);
 
 		// Call updatePID (similar to when we have processed M301)
 		updatePID();
+                st_init();
         SERIAL_ECHO_START;
         SERIAL_ECHOLNPGM("Stored settings retrieved");
     }
@@ -244,11 +265,13 @@ void Config_ResetDefault()
     float tmp1[]=DEFAULT_AXIS_STEPS_PER_UNIT;
     float tmp2[]=DEFAULT_MAX_FEEDRATE;
     long tmp3[]=DEFAULT_MAX_ACCELERATION;
+    long tmp4[]=DEFAULT_DIGIPOT_MOTOR_CURRENT;
     for (short i=0;i<4;i++) 
     {
         axis_steps_per_unit[i]=tmp1[i];  
         max_feedrate[i]=tmp2[i];  
         max_acceleration_units_per_sq_second[i]=tmp3[i];
+        digipot_motor_current[i]=tmp4[i];
     }
     
     // steps per sq second need to be updated to agree with the units per sq second
@@ -274,9 +297,6 @@ void Config_ResetDefault()
     absPreheatHPBTemp = ABS_PREHEAT_HPB_TEMP;
     absPreheatFanSpeed = ABS_PREHEAT_FAN_SPEED;
 #endif
-#ifdef ENABLE_AUTO_BED_LEVELING
-    zprobe_zoffset = -Z_PROBE_OFFSET_FROM_EXTRUDER;
-#endif
 #ifdef DOGLCD
     lcd_contrast = DEFAULT_LCD_CONTRAST;
 #endif
@@ -287,11 +307,14 @@ void Config_ResetDefault()
     
     // call updatePID (similar to when we have processed M301)
     updatePID();
+    st_init();
     
 #ifdef PID_ADD_EXTRUSION_RATE
     Kc = DEFAULT_Kc;
 #endif//PID_ADD_EXTRUSION_RATE
 #endif//PIDTEMP
+
+zprobe_offset=DEFAULT_Z_PROBE_OFFSET_FROM_EXTRUDER;
 
 SERIAL_ECHO_START;
 SERIAL_ECHOLNPGM("Hardcoded Default Settings Loaded");

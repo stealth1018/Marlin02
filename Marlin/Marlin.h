@@ -22,6 +22,9 @@
 #include "Configuration.h"
 #include "pins.h"
 
+void do_blocking_move_to(float x, float y, float z);
+void do_blocking_move_relative(float offset_x, float offset_y, float offset_z);
+
 #ifndef AT90USB
 #define  HardwareSerial_h // trick to disable the standard HWserial
 #endif
@@ -241,5 +244,7 @@ extern uint8_t active_extruder;
 extern void digipot_i2c_set_current( int channel, float current );
 extern void digipot_i2c_init();
 #endif
+
+extern float zprobe_offset;
 
 #endif

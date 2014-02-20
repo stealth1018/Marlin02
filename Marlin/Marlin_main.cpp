@@ -85,6 +85,7 @@
 // M Codes
 // M0   - Unconditional stop - Wait for user to press a button on the LCD (Only if ULTRA_LCD is enabled)
 // M1   - Same as M0
+// M3   - change probe offset
 // M17  - Enable/Power all stepper motors
 // M18  - Disable all stepper motors; same as M84
 // M20  - List SD card
@@ -204,7 +205,6 @@ float endstop_adj[3]={0,0,0};
 float min_pos[3] = { X_MIN_POS, Y_MIN_POS, Z_MIN_POS };
 float max_pos[3] = { X_MAX_POS, Y_MAX_POS, Z_MAX_POS };
 bool axis_known_position[3] = {false, false, false};
-float zprobe_zoffset;
 
 // Extruder offset
 #if EXTRUDERS > 1
@@ -300,6 +300,8 @@ bool Stopped=false;
 
 bool CooldownNoWait = true;
 bool target_direction;
+
+float zprobe_offset;
 
 //===========================================================================
 //=============================ROUTINES=============================
@@ -841,7 +843,7 @@ static void set_bed_level_equation_lsq(double *plane_equation_coefficients)
     current_position[Z_AXIS] = corrected_position.z;
 
     // but the bed at 0 so we don't go below it.
-    current_position[Z_AXIS] = zprobe_zoffset; // in the lsq we reach here after raising the extruder due to the loop structure
+    current_position[Z_AXIS] = zprobe_offset;
 
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
 }
@@ -877,7 +879,7 @@ static void set_bed_level_equation(float z_at_xLeft_yFront, float z_at_xRight_yF
     current_position[Z_AXIS] = corrected_position.z;
 
     // but the bed at 0 so we don't go below it.
-    current_position[Z_AXIS] = zprobe_zoffset;
+    current_position[Z_AXIS] = zprobe_offset;
 
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
 }
@@ -888,7 +890,7 @@ static void run_z_probe() {
     feedrate = homing_feedrate[Z_AXIS];
 
     // move down until you find the bed
-    float zPosition = -10;
+    float zPosition = -1.5 * max_length(Z_AXIS);
     plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], zPosition, current_position[E_AXIS], feedrate/60, active_extruder);
     st_synchronize();
 
@@ -912,11 +914,11 @@ static void run_z_probe() {
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
 }
 
-static void do_blocking_move_to(float x, float y, float z) {
+void do_blocking_move_to(float x, float y, float z) {
     float oldFeedRate = feedrate;
 
     feedrate = XY_TRAVEL_SPEED;
-
+    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
     current_position[X_AXIS] = x;
     current_position[Y_AXIS] = y;
     current_position[Z_AXIS] = z;
@@ -926,7 +928,17 @@ static void do_blocking_move_to(float x, float y, float z) {
     feedrate = oldFeedRate;
 }
 
-static void do_blocking_move_relative(float offset_x, float offset_y, float offset_z) {
+static void do_blocking_extruder(float e,int feedrate) {
+    float oldFeedRate = feedrate;
+
+    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);    
+    plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]+e, feedrate/60, active_extruder);
+    st_synchronize();
+
+    feedrate = oldFeedRate;
+}
+
+void do_blocking_move_relative(float offset_x, float offset_y, float offset_z) {
     do_blocking_move_to(current_position[X_AXIS] + offset_x, current_position[Y_AXIS] + offset_y, current_position[Z_AXIS] + offset_z);
 }
 
@@ -940,9 +952,9 @@ static void setup_for_endstop_move() {
 }
 
 static void clean_up_after_endstop_move() {
-#ifdef ENDSTOPS_ONLY_FOR_HOMING
+//#ifdef ENDSTOPS_ONLY_FOR_HOMING
     enable_endstops(false);
-#endif
+//#endif
 
     feedrate = saved_feedrate;
     feedmultiply = saved_feedmultiply;
@@ -963,6 +975,13 @@ static void engage_z_probe() {
 #endif
     }
     #endif
+    
+    clean_up_after_endstop_move();
+    float lastpos = current_position[X_AXIS];   
+    do_blocking_move_to(0, current_position[Y_AXIS], current_position[Z_AXIS]);
+    do_blocking_move_to(lastpos, current_position[Y_AXIS], current_position[Z_AXIS]);
+    setup_for_endstop_move();
+
 }
 
 static void retract_z_probe() {
@@ -979,11 +998,20 @@ static void retract_z_probe() {
 #endif
     }
     #endif
+    clean_up_after_endstop_move();    
+    do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], 0);
+    //do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]);
+    setup_for_endstop_move();
+
 }
 
 /// Probe bed height at position (x,y), returns the measured z value
 static float probe_pt(float x, float y, float z_before) {
   // move to right place
+  if(READ(Z_MIN_PIN)){
+  engage_z_probe();   // Engage Z Servo endstop if available
+  }
+
   do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], z_before);
   do_blocking_move_to(x - X_PROBE_OFFSET_FROM_EXTRUDER, y - Y_PROBE_OFFSET_FROM_EXTRUDER, current_position[Z_AXIS]);
 
@@ -1027,7 +1055,7 @@ static void homeaxis(int axis) {
     #ifdef SERVO_ENDSTOPS
       #if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
         if (axis==Z_AXIS) {
-          engage_z_probe();
+          //engage_z_probe();
         }
 	    else
       #endif
@@ -1035,6 +1063,10 @@ static void homeaxis(int axis) {
         servos[servo_endstops[axis]].write(servo_endstop_angles[axis * 2]);
       }
     #endif
+    
+    for(int8_t i=0; i < NUM_AXIS; i++) {
+    destination[i] = current_position[i];
+    }
 
     destination[axis] = 1.5 * max_length(axis) * axis_home_dir;
     feedrate = homing_feedrate[axis];
@@ -1077,7 +1109,7 @@ static void homeaxis(int axis) {
       }
     #endif
 #if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
-    if (axis==Z_AXIS) retract_z_probe();
+    //if (axis==Z_AXIS) retract_z_probe();
 #endif
 
   }
@@ -1191,6 +1223,96 @@ void process_commands()
         retract(false);
       break;
       #endif //FWRETRACT
+      
+    case 28: //G28 Home all Axis one at a time
+      plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
+      
+      saved_feedrate = feedrate;
+      saved_feedmultiply = feedmultiply;
+      feedmultiply = 100;
+      previous_millis_cmd = millis();
+
+      enable_endstops(true);
+
+      for(int8_t i=0; i < NUM_AXIS; i++) {
+        destination[i] = current_position[i];
+      }
+      feedrate = 0.0;
+
+      home_all_axis = !((code_seen(axis_codes[0])) || (code_seen(axis_codes[1])) || (code_seen(axis_codes[2])));
+
+      if((home_all_axis) || (code_seen(axis_codes[X_AXIS])) || (code_seen(axis_codes[Y_AXIS])))
+      {
+        do_blocking_move_relative(0, 0, Z_RAISE_BEFORE_PROBING);
+        
+        HOMEAXIS(X);
+        if(code_value_long() != 0) {
+          current_position[X_AXIS]=code_value()+add_homeing[0];
+        }
+        
+        HOMEAXIS(Y);
+        if(code_value_long() != 0) {
+          current_position[Y_AXIS]=code_value()+add_homeing[1];
+        } 
+      }    
+
+      if(home_all_axis) {
+        if(READ(Z_MIN_PIN)){
+        engage_z_probe();   // Engage Z Servo endstop if available
+        }
+        do_blocking_move_to(X_MAX_POS/2, Y_MAX_POS/2, current_position[Z_AXIS]);
+
+        HOMEAXIS(Z);
+        current_position[Z_AXIS] += zprobe_offset;
+        retract_z_probe();
+      }
+                                            // Let's see if X and Y are homed and probe is inside bed area.
+      if(code_seen(axis_codes[Z_AXIS])) {
+        if ( (axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS]) \
+          && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER >= X_MIN_POS) \
+          && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER <= X_MAX_POS) \
+          && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER >= Y_MIN_POS) \
+          && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER <= Y_MAX_POS)) {
+
+          do_blocking_move_relative(0, 0, Z_RAISE_BEFORE_PROBING);
+          if(READ(Z_MIN_PIN)){
+          engage_z_probe();   // Engage Z Servo endstop if available
+          }
+
+          HOMEAXIS(Z);
+          current_position[Z_AXIS] += zprobe_offset;
+          retract_z_probe();
+          
+        } else if (!((axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS]))) {
+            LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
+            SERIAL_ECHO_START;
+            SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
+        } else {
+            LCD_MESSAGEPGM(MSG_ZPROBE_OUT);
+            SERIAL_ECHO_START;
+            SERIAL_ECHOLNPGM(MSG_ZPROBE_OUT);
+        }
+      }
+       
+      if(code_seen(axis_codes[Z_AXIS])) {
+        if(code_value_long() != 0) {
+          current_position[Z_AXIS]=code_value()+add_homeing[2];
+        }
+      }
+
+      plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+
+
+      #ifdef ENDSTOPS_ONLY_FOR_HOMING
+        enable_endstops(false);
+      #endif
+
+      feedrate = saved_feedrate;
+      feedmultiply = saved_feedmultiply;
+      previous_millis_cmd = millis();
+      endstops_hit_on_purpose();
+      break; 
+      /*
     case 28: //G28 Home all Axis one at a time
 #ifdef ENABLE_AUTO_BED_LEVELING
       plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
@@ -1386,7 +1508,7 @@ void process_commands()
       }
       #ifdef ENABLE_AUTO_BED_LEVELING
         if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
-          current_position[Z_AXIS] += zprobe_zoffset;  //Add Z_Probe offset (the distance is negative)
+          current_position[Z_AXIS] += zprobe_offset;  //Add Z_Probe offset (the distance is negative)
         }
       #endif
       plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
@@ -1401,23 +1523,35 @@ void process_commands()
       previous_millis_cmd = millis();
       endstops_hit_on_purpose();
       break;
-
+*/
 #ifdef ENABLE_AUTO_BED_LEVELING
     case 29: // G29 Detailed Z-Probe, probes the bed at 3 points.
         {
             #if Z_MIN_PIN == -1
             #error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
             #endif
-
+           do_blocking_move_relative(0, 0, Z_RAISE_BEFORE_PROBING);
+	   
             // Prevent user from running a G29 without first homing in X and Y
             if (! (axis_known_position[X_AXIS] && axis_known_position[Y_AXIS]) )
-            {
+            {            
+            HOMEAXIS(X);
+            if(code_value_long() != 0) {
+              current_position[X_AXIS]=code_value()+add_homeing[0];
+            }
+            
+            HOMEAXIS(Y);
+            if(code_value_long() != 0) {
+              current_position[Y_AXIS]=code_value()+add_homeing[1];
+            } 
+/*
                 LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
                 SERIAL_ECHO_START;
                 SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
                 break; // abort G29, since we don't know where we are
+*/
             }
-
+	   
             st_synchronize();
             // make sure the bed_level_rotation_matrix is identity or the planner will get it incorectly
             //vector_3 corrected_position = plan_get_position_mm();
@@ -1542,6 +1676,9 @@ void process_commands()
             apply_rotation_xyz(plan_bed_level_matrix, x_tmp, y_tmp, z_tmp);         //Apply the correction sending the probe offset
             current_position[Z_AXIS] = z_tmp - real_z + current_position[Z_AXIS];   //The difference is added to current position and sent to planner.
             plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+            retract_z_probe(); // Retract Z Servo endstop if available            
+            clean_up_after_endstop_move();
+            do_blocking_move_to(79.5, current_position[Y_AXIS], current_position[Z_AXIS]);            
         }
         break;
 
@@ -1629,6 +1766,22 @@ void process_commands()
     }
     break;
 #endif
+
+    case 3:  // M3 - change z probe offset
+    {
+      if (code_seen('S')){
+      SERIAL_ECHO_START;
+      SERIAL_ECHOPAIR("Z probe offset before:",zprobe_offset);      
+      SERIAL_PROTOCOLPGM("\n");
+      
+      zprobe_offset=code_value(); 
+      
+      SERIAL_ECHO_START;
+      SERIAL_ECHOPAIR("Z probe offset  after:",zprobe_offset);   
+      }    
+    }
+    break;
+    
     case 17:
         LCD_MESSAGEPGM(MSG_NO_MOVE);
         enable_x();
@@ -2668,7 +2821,14 @@ void process_commands()
     #ifdef FILAMENTCHANGEENABLE
     case 600: //Pause for filament change X[pos] Y[pos] Z[relative lift] E[initial retract] L[later retract distance for removal]
     {
-        float target[4];
+      if(degHotend(active_extruder)<EXTRUDE_MINTEMP)
+      {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOLNPGM(MSG_ERR_COLD_EXTRUDE_STOP);
+        LCD_ALERTMESSAGEPGM("Err:cold extrusion");
+	break;
+      }
+
         float lastpos[4];
         target[X_AXIS]=current_position[X_AXIS];
         target[Y_AXIS]=current_position[Y_AXIS];
@@ -2793,7 +2953,47 @@ void process_commands()
         plan_buffer_line(lastpos[X_AXIS], lastpos[Y_AXIS], lastpos[Z_AXIS], lastpos[E_AXIS], feedrate/60, active_extruder); //final untretract
     }
     break;
+    
+    case 601: //load
+    {      
+      if(degHotend(active_extruder)<EXTRUDE_MINTEMP)
+      {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOLNPGM(MSG_ERR_COLD_EXTRUDE_STOP);
+        LCD_ALERTMESSAGEPGM("Err:cold extrusion");
+	break;
+      }
+    
+        float lastpos=current_position[E_AXIS];
+        do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+FILAMENTCHANGE_ZADD);
+              
+        LCD_MESSAGEPGM("Loading filament  ");
+        do_blocking_extruder(-FILAMENTCHANGE_FINALRETRACT,300);
+        current_position[E_AXIS]=lastpos;     
+    }
+    break;
+    
+    case 602: //unload
+    {
+      if(degHotend(active_extruder)<EXTRUDE_MINTEMP)
+      {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOLNPGM(MSG_ERR_COLD_EXTRUDE_STOP);
+        LCD_ALERTMESSAGEPGM("Err:cold extrusion");
+	break;
+      }  
+        float lastpos=current_position[E_AXIS];  
+        do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+FILAMENTCHANGE_ZADD);
+              
+        LCD_MESSAGEPGM("Unloading filament  ");
+        do_blocking_extruder(-45,200);
+        current_position[E_AXIS]=lastpos; 
+      
+    }
+    break;
+    
     #endif //FILAMENTCHANGEENABLE
+    
     #ifdef DUAL_X_CARRIAGE
     case 605: // Set dual x-carriage movement mode:
               //    M605 S0: Full control mode. The slicer has full control over x-carriage movement

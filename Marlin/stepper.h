@@ -95,6 +95,8 @@ void microstep_readings();
 #ifdef BABYSTEPPING
   void babystep(const uint8_t axis,const bool direction); // perform a short step with a single stepper motor, outside of any convention
 #endif
+
+extern unsigned long digipot_motor_current[4];
      
 
 
