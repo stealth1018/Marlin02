@@ -249,6 +249,13 @@ static void bed_down()
     enquecommand_P(PSTR(SD_FINISHED_RELEASECOMMAND));  
 }
 
+static void auto_level()
+{    
+    enquecommand_P((PSTR("G29")));
+    enquecommand_P((PSTR("G1 X79 Y0 F8000")));  
+}
+
+
 static void lcd_sdcard_stop()
 {
     card.sdprinting = false;
@@ -628,7 +635,7 @@ static void lcd_control_menu()
     MENU_ITEM(back, MSG_MAIN, lcd_main_menu);
     MENU_ITEM(submenu, MSG_TEMPERATURE, lcd_control_temperature_menu);
     MENU_ITEM_EDIT(float32, "Z probe offset", &zprobe_offset, 1.5, 4.5);
-    MENU_ITEM(gcode, "Auto level", PSTR("G29"));
+    MENU_ITEM(function, "Auto level", auto_level);
     //MENU_ITEM(submenu, MSG_MOTION, lcd_control_motion_menu);
 #ifdef DOGLCD
 //    MENU_ITEM_EDIT(int3, MSG_CONTRAST, &lcd_contrast, 0, 63);

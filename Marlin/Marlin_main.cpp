@@ -926,6 +926,16 @@ void do_blocking_move_to(float x, float y, float z) {
     feedrate = oldFeedRate;
 }
 
+static void do_blocking_extruder(float e,int feedrate) {
+    float oldFeedRate = feedrate;
+
+    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);    
+    plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]+e, feedrate/60, active_extruder);
+    st_synchronize();
+
+    feedrate = oldFeedRate;
+}
+
 void do_blocking_move_relative(float offset_x, float offset_y, float offset_z) {
     do_blocking_move_to(current_position[X_AXIS] + offset_x, current_position[Y_AXIS] + offset_y, current_position[Z_AXIS] + offset_z);
 }
@@ -1416,7 +1426,9 @@ void process_commands()
                        
             
             retract_z_probe();
-            
+
+            do_blocking_move_to(79.5, 169, current_position[Z_AXIS]);            
+           
             clean_up_after_endstop_move();
         }
         break;
@@ -2561,131 +2573,91 @@ void process_commands()
     #ifdef FILAMENTCHANGEENABLE
     case 600: //Pause for filament change X[pos] Y[pos] Z[relative lift] E[initial retract] L[later retract distance for removal]
     {
-        float target[4];
+      if(degHotend(active_extruder)<EXTRUDE_MINTEMP)
+      {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOLNPGM(MSG_ERR_COLD_EXTRUDE_STOP);
+        LCD_ALERTMESSAGEPGM("Err:cold extrusion");
+      }else{     
         float lastpos[4];
-        target[X_AXIS]=current_position[X_AXIS];
-        target[Y_AXIS]=current_position[Y_AXIS];
-        target[Z_AXIS]=current_position[Z_AXIS];
-        target[E_AXIS]=current_position[E_AXIS];
         lastpos[X_AXIS]=current_position[X_AXIS];
         lastpos[Y_AXIS]=current_position[Y_AXIS];
         lastpos[Z_AXIS]=current_position[Z_AXIS];
         lastpos[E_AXIS]=current_position[E_AXIS];
         //retract by E
-        if(code_seen('E'))
-        {
-          target[E_AXIS]+= code_value();
-        }
-        else
-        {
-          #ifdef FILAMENTCHANGE_FIRSTRETRACT
-            target[E_AXIS]+= FILAMENTCHANGE_FIRSTRETRACT ;
-          #endif
-        }
-        plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder);
 
-        //lift Z
-        if(code_seen('Z'))
-        {
-          target[Z_AXIS]+= code_value();
-        }
-        else
-        {
-          #ifdef FILAMENTCHANGE_ZADD
-            target[Z_AXIS]+= FILAMENTCHANGE_ZADD ;
-          #endif
-        }
-        plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder);
 
-        //move xy
-        if(code_seen('X'))
-        {
-          target[X_AXIS]+= code_value();
-        }
-        else
-        {
-          #ifdef FILAMENTCHANGE_XPOS
-            target[X_AXIS]= FILAMENTCHANGE_XPOS ;
-          #endif
-        }
-        if(code_seen('Y'))
-        {
-          target[Y_AXIS]= code_value();
-        }
-        else
-        {
-          #ifdef FILAMENTCHANGE_YPOS
-            target[Y_AXIS]= FILAMENTCHANGE_YPOS ;
-          #endif
-        }
+        do_blocking_move_to(FILAMENTCHANGE_XPOS, FILAMENTCHANGE_YPOS, current_position[Z_AXIS]+FILAMENTCHANGE_ZADD);
+        
+        LCD_MESSAGEPGM("Unloading filament  ");
+        do_blocking_extruder(-45,150);
 
-        plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder);
-
-        if(code_seen('L'))
-        {
-          target[E_AXIS]+= code_value();
-        }
-        else
-        {
-          #ifdef FILAMENTCHANGE_FINALRETRACT
-            target[E_AXIS]+= FILAMENTCHANGE_FINALRETRACT ;
-          #endif
-        }
-
-        plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder);
-
-        //finish moves
-        st_synchronize();
-        //disable extruder steppers so filament can be removed
-        disable_e0();
-        disable_e1();
-        disable_e2();
         delay(100);
-        LCD_ALERTMESSAGEPGM(MSG_FILAMENTCHANGE);
+        LCD_MESSAGEPGM("Click to next   ");
         uint8_t cnt=0;
         while(!lcd_clicked()){
           cnt++;
           manage_heater();
           manage_inactivity();
-          lcd_update();
-          if(cnt==0)
-          {
-          #if BEEPER > 0
-            SET_OUTPUT(BEEPER);
-
-            WRITE(BEEPER,HIGH);
-            delay(3);
-            WRITE(BEEPER,LOW);
-            delay(3);
-          #else
-			#if !defined(LCD_FEEDBACK_FREQUENCY_HZ) || !defined(LCD_FEEDBACK_FREQUENCY_DURATION_MS)
-              lcd_buzz(1000/6,100);
-			#else
-			  lcd_buzz(LCD_FEEDBACK_FREQUENCY_DURATION_MS,LCD_FEEDBACK_FREQUENCY_HZ);
-			#endif
-          #endif
-          }
+          lcd_update();     
         }
-
-        //return to normal
-        if(code_seen('L'))
-        {
-          target[E_AXIS]+= -code_value();
+        
+        do_blocking_extruder(-FILAMENTCHANGE_FINALRETRACT,300);
+        LCD_MESSAGEPGM("Loading filament  ");
+        
+        delay(100);
+        LCD_MESSAGEPGM("Click to return  ");
+        cnt=0;
+        while(!lcd_clicked()){
+          cnt++;
+          manage_heater();
+          manage_inactivity();
+          lcd_update();     
         }
-        else
-        {
-          #ifdef FILAMENTCHANGE_FINALRETRACT
-            target[E_AXIS]+=(-1)*FILAMENTCHANGE_FINALRETRACT ;
-          #endif
-        }
-        current_position[E_AXIS]=target[E_AXIS]; //the long retract of L is compensated by manual filament feeding
-        plan_set_e_position(current_position[E_AXIS]);
-        plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder); //should do nothing
-        plan_buffer_line(lastpos[X_AXIS], lastpos[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder); //move xy back
-        plan_buffer_line(lastpos[X_AXIS], lastpos[Y_AXIS], lastpos[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder); //move z back
-        plan_buffer_line(lastpos[X_AXIS], lastpos[Y_AXIS], lastpos[Z_AXIS], lastpos[E_AXIS], feedrate/60, active_extruder); //final untretract
+        
+        do_blocking_move_to(lastpos[X_AXIS],lastpos[Y_AXIS],current_position[Z_AXIS]);
+        do_blocking_move_to(current_position[X_AXIS],current_position[Y_AXIS],lastpos[Z_AXIS]);
+        current_position[E_AXIS] = lastpos[E_AXIS];
+      }
     }
     break;
+    
+    case 601: //load
+    {      
+      if(degHotend(active_extruder)<EXTRUDE_MINTEMP)
+      {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOLNPGM(MSG_ERR_COLD_EXTRUDE_STOP);
+        LCD_ALERTMESSAGEPGM("Err:cold extrusion");
+      }else{     
+        float lastpos=current_position[E_AXIS];
+        do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+FILAMENTCHANGE_ZADD);
+              
+        LCD_MESSAGEPGM("Loading filament  ");
+        do_blocking_extruder(-FILAMENTCHANGE_FINALRETRACT,300);
+        current_position[E_AXIS]=lastpos;    
+      }     
+    }
+    break;
+    
+    case 602: //unload
+    {
+      if(degHotend(active_extruder)<EXTRUDE_MINTEMP)
+      {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOLNPGM(MSG_ERR_COLD_EXTRUDE_STOP);
+        LCD_ALERTMESSAGEPGM("Err:cold extrusion");
+      }else{   
+        float lastpos=current_position[E_AXIS];  
+        do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+FILAMENTCHANGE_ZADD);
+              
+        LCD_MESSAGEPGM("Unloading filament  ");
+        do_blocking_extruder(-45,150);
+        current_position[E_AXIS]=lastpos; 
+      }
+    }
+    break;
+    
     #endif //FILAMENTCHANGEENABLE
     #ifdef DUAL_X_CARRIAGE
     case 605: // Set dual x-carriage movement mode:
