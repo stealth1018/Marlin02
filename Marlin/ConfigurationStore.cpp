@@ -101,6 +101,9 @@ void Config_StoreSettings()
 #ifndef DISABLE_M503
 void Config_PrintSettings()
 {  // Always have this function, even with EEPROM_SETTINGS disabled, the current values will be shown
+    SERIAL_ECHOLNPGM(STRING_CONFIG_H_AUTHOR);
+    SERIAL_ECHOPGM("Compiled: ");
+    SERIAL_ECHOLNPGM(__DATE__);
     SERIAL_ECHO_START;
     SERIAL_ECHOLNPGM("Steps per unit:");
     SERIAL_ECHO_START;

@@ -1198,7 +1198,7 @@ void digipot_init() //Initialize Digipot Motor Current
   
     SPI.begin();
     pinMode(DIGIPOTSS_PIN, OUTPUT);
-    for(int i=0;i<=4;i++)
+    for(int i=0;i<NUM_AXIS;i++)
       //digitalPotWrite(digipot_ch[i], digipot_motor_current[i]);
       digipot_current(i,digipot_motor_current[i]);
   #endif
