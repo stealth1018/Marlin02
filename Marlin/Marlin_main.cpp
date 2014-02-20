@@ -1423,13 +1423,12 @@ void process_commands()
             apply_rotation_xyz(plan_bed_level_matrix, x_tmp, y_tmp, z_tmp);         //Apply the correction sending the probe offset
             current_position[Z_AXIS] = z_tmp - real_z + current_position[Z_AXIS];   //The difference is added to current position and sent to planner.
             plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-                       
+            st_synchronize();           
             
-            retract_z_probe();
-
-            do_blocking_move_to(79.5, 169, current_position[Z_AXIS]);            
-           
+            retract_z_probe();            
             clean_up_after_endstop_move();
+            do_blocking_move_to(79.5, 169, current_position[Z_AXIS]);
+            
         }
         break;
 

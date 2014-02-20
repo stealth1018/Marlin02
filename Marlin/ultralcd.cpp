@@ -252,7 +252,7 @@ static void bed_down()
 static void auto_level()
 {    
     enquecommand_P((PSTR("G29")));
-    enquecommand_P((PSTR("G1 X79 Y0 F8000")));  
+    enquecommand_P((PSTR("G1 Y0 F8000")));  
 }
 
 
