@@ -1543,6 +1543,7 @@ void process_commands()
       
       SERIAL_ECHO_START;
       SERIAL_ECHOPAIR("Z probe offset  after:",zprobe_offset);   
+      Config_StoreSettings();
       }    
     }
     break;
