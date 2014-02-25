@@ -959,49 +959,6 @@ static void clean_up_after_endstop_move() {
     previous_millis_cmd = millis();
 }
 
-static void engage_z_probe() {
-    if(READ(Z_MIN_PIN)){
-    clean_up_after_endstop_move();
-    float lastpos = current_position[X_AXIS];
-    do_blocking_move_to(0, current_position[Y_AXIS], current_position[Z_AXIS]);    
-    do_blocking_move_to(lastpos, current_position[Y_AXIS], current_position[Z_AXIS]);
-    setup_for_endstop_move();
-    }
-}
-
-static void retract_z_probe() {
-    
-    clean_up_after_endstop_move();    
-    do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], 0);
-    //do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]);
-    setup_for_endstop_move();
-    
-}
-
-/// Probe bed height at position (x,y), returns the measured z value
-static float probe_pt(float x, float y, float z_before) {
-  // move to right place
-  do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], z_before);
-  do_blocking_move_to(x - X_PROBE_OFFSET_FROM_EXTRUDER, y - Y_PROBE_OFFSET_FROM_EXTRUDER, current_position[Z_AXIS]);
-  
-  engage_z_probe();
-  run_z_probe();
-  float measured_z = current_position[Z_AXIS];
-  //retract_z_probe();
-
-  SERIAL_PROTOCOLPGM(MSG_BED);
-  SERIAL_PROTOCOLPGM(" x: ");
-  SERIAL_PROTOCOL(x);
-  SERIAL_PROTOCOLPGM(" y: ");
-  SERIAL_PROTOCOL(y);
-  SERIAL_PROTOCOLPGM(" z: ");
-  SERIAL_PROTOCOL(measured_z);
-  SERIAL_PROTOCOLPGM("\n");
-  return measured_z;
-}
-
-#endif // #ifdef ENABLE_AUTO_BED_LEVELING
-
 static void homeaxis(int axis) {
 #define HOMEAXIS_DO(LETTER) \
   ((LETTER##_MIN_PIN > -1 && LETTER##_HOME_DIR==-1) || (LETTER##_MAX_PIN > -1 && LETTER##_HOME_DIR==1))
@@ -1123,6 +1080,61 @@ void refresh_cmd_timeout(void)
     }
   } //retract
 #endif //FWRETRACT
+
+
+static void engage_z_probe() {
+    if(READ(Z_MIN_PIN)){
+    
+    float lastpos = current_position[X_AXIS];
+    
+    HOMEAXIS(X);
+    
+    while(READ(Z_MIN_PIN)){
+      clean_up_after_endstop_move();
+      do_blocking_move_relative(-0.5,0,0);
+      setup_for_endstop_move();
+    }
+    
+    HOMEAXIS(X);
+    
+    do_blocking_move_to(lastpos, current_position[Y_AXIS], current_position[Z_AXIS]);
+    
+    }
+}
+
+static void retract_z_probe() {
+    
+    clean_up_after_endstop_move();    
+    do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], 0);
+    //do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]);
+    setup_for_endstop_move();
+    
+}
+
+/// Probe bed height at position (x,y), returns the measured z value
+static float probe_pt(float x, float y, float z_before) {
+  // move to right place
+  do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], z_before);
+  do_blocking_move_to(x - X_PROBE_OFFSET_FROM_EXTRUDER, y - Y_PROBE_OFFSET_FROM_EXTRUDER, current_position[Z_AXIS]);
+  
+  engage_z_probe();
+  run_z_probe();
+  float measured_z = current_position[Z_AXIS];
+  //retract_z_probe();
+
+  SERIAL_PROTOCOLPGM(MSG_BED);
+  SERIAL_PROTOCOLPGM(" x: ");
+  SERIAL_PROTOCOL(x);
+  SERIAL_PROTOCOLPGM(" y: ");
+  SERIAL_PROTOCOL(y);
+  SERIAL_PROTOCOLPGM(" z: ");
+  SERIAL_PROTOCOL(measured_z);
+  SERIAL_PROTOCOLPGM("\n");
+  return measured_z;
+}
+
+#endif // #ifdef ENABLE_AUTO_BED_LEVELING
+
 
 void process_commands()
 {
@@ -1313,12 +1325,14 @@ void process_commands()
             
             feedrate = homing_feedrate[Z_AXIS];
             engage_z_probe();
+            do_blocking_move_to(LEFT_PROBE_BED_POSITION - X_PROBE_OFFSET_FROM_EXTRUDER, FRONT_PROBE_BED_POSITION - Y_PROBE_OFFSET_FROM_EXTRUDER, current_position[Z_AXIS]);
+
 #ifdef ACCURATE_BED_LEVELING
 
             int xGridSpacing = (RIGHT_PROBE_BED_POSITION - LEFT_PROBE_BED_POSITION) / (ACCURATE_BED_LEVELING_POINTS-1);
             int yGridSpacing = (BACK_PROBE_BED_POSITION - FRONT_PROBE_BED_POSITION) / (ACCURATE_BED_LEVELING_POINTS-1);
 
-
+            
             // solve the plane equation ax + by + d = z
             // A is the matrix with rows [x y 1] for all the probed points
             // B is the vector of the Z positions
